@@ -31,9 +31,7 @@ val zoom = 10f
 @Composable
 @Preview
 fun App() {
-    val state = remember {
-        ViewPortState(zoom, p1)
-    }
+    val state = rememberViewPortState(zoom, p1)
     MaterialTheme {
         TileMapView(
             modifier = Modifier
