@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.toOffset
 import io.ktor.client.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
@@ -26,10 +27,12 @@ import kotlin.math.tan
 
 data class GeoPoint(val latitude: Double, val longitude: Double)
 data class TilePos(val zoom: Int, val x: Double, val y: Double)
+data class TileImage(
+    val pos: TilePos,
+    val image: ImageBitmap
+)
 
-// There is no built-in toRadians/toDegrees in Kotlin Multiplatform
 fun Double.toRadians(): Double = this / 180.0 * PI
-fun Double.toDegrees(): Double = this * 180.0 / PI
 
 fun GeoPoint.toTilePos(zoom: Int): TilePos {
     val n = 1 shl zoom
@@ -41,6 +44,7 @@ fun GeoPoint.toTilePos(zoom: Int): TilePos {
     )
 }
 
+// Code to load tile images from OpenStreetMap
 private val client by lazy { HttpClient() }
 suspend fun loadTile(p: TilePos): ImageBitmap? = withContext(Dispatchers.Default) {
     val url = "https://tile.openstreetmap.org/${p.zoom}/${p.x.toInt()}/${p.y.toInt()}.png"
@@ -49,85 +53,25 @@ suspend fun loadTile(p: TilePos): ImageBitmap? = withContext(Dispatchers.Default
 }
 
 @Composable
-fun MinimalTileMapView(
-    zoom: Int = 1,
-    start: GeoPoint,
-    modifier: Modifier = Modifier,
-) {
-    val size = with(LocalDensity.current) { 256.dp.toPx().toInt() }
-    var tileImage by remember { mutableStateOf<ImageBitmap?>(null) }
-    // Load the tile image when zoom or start point changes
-    LaunchedEffect(zoom, start) {
-        val tilePos = start.toTilePos(zoom)
-        //tileImage = loadTile(tilePos)
-    }
-    // Draw the tile image on a Canvas
-    Canvas(modifier) {
-        tileImage?.let { image ->
-            drawImage(
-                image = image,
-                dstSize = IntSize(size, size)
-            )
-        }
-    }
-}
-
-@Composable
-fun TileMapViewCenterPoint(
-    zoom: Int = 1,
-    start: GeoPoint,
-    modifier: Modifier = Modifier,
-) {
-    val centerPos = remember(start, zoom) {
-        start.toTilePos(zoom)
-    }
-    val tileSize = with(LocalDensity.current) { 256.dp.toPx().toInt() }
-    fun calculateOffset(p: TilePos) = IntOffset(
-        ((p.x.toInt() - centerPos.x) * tileSize).roundToInt(),
-        ((p.y.toInt() - centerPos.y) * tileSize).roundToInt()
-    )
-    var tileImage by remember { mutableStateOf<ImageBitmap?>(null) }
-    val offset = remember { calculateOffset(centerPos) }
-    // Load the tile image when zoom or start point changes
-    LaunchedEffect(zoom, start) {
-        tileImage = loadTile(centerPos)
-    }
-    // Draw the tile image on a Canvas
-    Canvas(modifier) {
-        translate(size.width / 2f, size.height / 2f) {
-            tileImage?.let { image ->
-                drawImage(
-                    image = image,
-                    dstOffset = offset,
-                    dstSize = IntSize(tileSize, tileSize)
-                )
-            }
-            drawCircle(Color.Green, radius = 10f, center = Offset.Zero)
-        }
-    }
-}
-
-data class TileImage(
-    val pos: TilePos,
-    val image: ImageBitmap
-)
-
-@Composable
 fun TileMapViewFill(
     zoom: Int = 1,
     start: GeoPoint,
     modifier: Modifier = Modifier,
+    drawLine: Boolean = false
 ) {
-    val centerPos = remember(start, zoom) {
-        start.toTilePos(zoom)
-    }
+    val centerPos = remember(start, zoom) { start.toTilePos(zoom) }
     val tileSize = with(LocalDensity.current) { 256.dp.toPx().toInt() }
     fun calculateOffset(p: TilePos) = IntOffset(
-        ((p.x.toInt() - centerPos.x) * tileSize).roundToInt(),
-        ((p.y.toInt() - centerPos.y) * tileSize).roundToInt()
+        ((p.x - centerPos.x) * tileSize).roundToInt(),
+        ((p.y - centerPos.y) * tileSize).roundToInt()
     )
     var tileImageList: List<TileImage> by remember { mutableStateOf(emptyList()) }
     var canvasSizePx by remember { mutableStateOf(Size.Zero) }
+    val p2 = remember(zoom) {
+        val tp = GeoPoint(52.51460371598352, 13.35008338366604).toTilePos(zoom)
+        calculateOffset(tp).toOffset()
+    }
+
     // Load the tile image when zoom or start point changes
     LaunchedEffect(zoom, start, canvasSizePx) {
         // Calculate the range of tiles to load based on the current canvas size
@@ -161,6 +105,9 @@ fun TileMapViewFill(
                 )
             }
             drawCircle(Color.Green, radius = 10f, center = Offset.Zero)
+            if (drawLine) {
+                drawLine(color = Color.Cyan, start = p2, end = Offset.Zero, strokeWidth = 5f)
+            }
         }
     }
 }

@@ -17,12 +17,27 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import de.drick.tools.log
+import io.ktor.http.Url
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-data class GeoPoint(val latitude: Double, val longitude: Double)
+class GeoPoint(val latitude: Double, val longitude: Double)
+
+class GeoPointRad(val latitude: Double, val longitude: Double)
+
+fun GeoPoint.toRad(): GeoPointRad = GeoPointRad(
+    latitude = latitude.toRadians(),
+    longitude = longitude.toRadians()
+)
+
+fun GeoPointRad.toGeoPoint(): GeoPoint = GeoPoint(
+    latitude = latitude.toDegrees(),
+    longitude = longitude.toDegrees()
+)
 
 data class TileImage(
     val pos: TilePos,
@@ -45,30 +60,78 @@ data class VisibleTileRange(
     val stopY: Int
 )
 
-class ViewPortState(
-    initialZoom: Float = 0f,
-    initialPos: GeoPoint = GeoPoint(0.0, 0.0),
-    tileProvider: TileProvider = TileProvider(
-        tileSize = 512,
-        tileLoaderUrl = ::dipul
-    ),
-    val scope: CoroutineScope
+class TileLayerState(
+    private val tileProvider: TileProvider,
+    private val onInvalidate: () -> Unit
 ) {
+    val tileList = mutableListOf<TileImage>()
+    suspend fun update(
+        newTileList: List<TilePos>
+    ) {
+        log("Prepare new tiles")
+        val newTiles = newTileList.map { tp ->
+            val existingTile = tileList.find { it.pos == tp && it.image != null }
+            if (existingTile != null) {
+                existingTile
+            } else {
+                val cachedImage = tileProvider.cachedTile(tp)
+                TileImage(tp, cachedImage)
+            }
+        }
+        tileList.clear()
+        tileList.addAll(newTiles)
+        onInvalidate()
+        //Loading tiles
+        val tilesToLoad = newTiles.filter { it.image == null }
+        log("load ${tilesToLoad.size}")
+
+        tilesToLoad.forEach { tile ->
+            try {
+                val image = tileProvider.loadTile(tile.pos)
+                tile.image = image
+                log("Tile loaded: ${tile.pos}")
+                onInvalidate()
+            } catch (err: CancellationException) {
+                throw err // Propagate cancellation to stop when scope is canceled
+            } catch (err: Throwable) {
+                log(err)
+            }
+        }
+        log("Loading finished")
+    }
+}
+
+class ViewPortState(
+    val scope: CoroutineScope,
+    initialZoom: Float = 10f,
+    initialPos: GeoPoint = GeoPoint(0.0, 0.0),
+    val tileSize: Int = 512,
+    vararg tileLoaderUrl: (TilePos) -> Url
+) {
+    init {
+        log("Create instance: $this")
+    }
     var zoom by mutableStateOf(initialZoom)
         private set
     val tileZoom get() = zoom.toInt()
     var centerPos by mutableStateOf(initialPos.toTilePos(tileZoom))
-    private val tileProvider by mutableStateOf(tileProvider)
+    val tileStateList = tileLoaderUrl.map { tileLoader ->
+        val provider = TileProvider(tileLoader)
+        TileLayerState(provider) {
+            invalidateCounter++
+        }
+    }
+    val size = IntSize(tileSize, tileSize)
+
     private var sizePx = Size(0f, 0f)
-
-    val tileSize = IntSize(tileProvider.tileSize, tileProvider.tileSize)
-
-    val tileList = mutableListOf<TileImage>()
     var invalidateCounter by mutableIntStateOf(0)
 
     fun updateSize(size: Size) {
-        sizePx = size
-        update()
+        if (size != sizePx) {
+            log("Update size: $size old($sizePx)")
+            sizePx = size
+            update()
+        }
     }
 
     fun center(point: GeoPoint) {
@@ -82,8 +145,8 @@ class ViewPortState(
         update()
     }
     fun movePx(x: Float, y: Float) {
-        val newX = centerPos.x - x / tileProvider.tileSize
-        val newY = centerPos.y - y / tileProvider.tileSize
+        val newX = centerPos.x - x / tileSize
+        val newY = centerPos.y - y / tileSize
         centerPos = centerPos.copy(
             x = newX,
             y = newY
@@ -95,57 +158,37 @@ class ViewPortState(
     private var visibleRange = VisibleTileRange(0, 0, 0, 0)
 
     fun calculateOffset(pos: TilePos) = IntOffset(
-        ((pos.x - centerPos.x) * tileProvider.tileSize).roundToInt(),
-        ((pos.y - centerPos.y) * tileProvider.tileSize).roundToInt()
+        ((pos.x - centerPos.x) * tileSize).roundToInt(),
+        ((pos.y - centerPos.y) * tileSize).roundToInt()
     )
+    var updateJob: Job? = null
 
     private fun update() {
-        scope.launch {
+        //updateJob?.cancel()
+        updateJob = scope.launch(Dispatchers.Main.immediate) {
+            log("Update tile list zoom:$tileZoom")
             if (sizePx != Size.Zero) {
-                val minX = (sizePx.width / 2f / tileProvider.tileSize).toInt()
-                val minY = (sizePx.height / 2f / tileProvider.tileSize).toInt()
+                val minX = (sizePx.width / 2f / tileSize).roundToInt()
+                val minY = (sizePx.height / 2f / tileSize).roundToInt()
                 val range = VisibleTileRange(
                     startX = centerPos.tileX - minX - 1,
                     stopX = centerPos.tileX + minX + 1,
                     startY = centerPos.tileY - minY - 1,
                     stopY = centerPos.tileY + minY + 1
                 )
-                if (range != visibleRange) {
-                    log("Prepare new tiles")
-                    visibleRange = range
-                    val newTiles = mutableListOf<TileImage>()
+                if (visibleRange != range) {
+                    val newTileList = mutableListOf<TilePos>()
                     for (x in range.startX..range.stopX) {
                         for (y in range.startY..range.stopY) {
-                            val tp = TilePos(tileZoom, x.toDouble(), y.toDouble())
-                            // Check if tile is already loaded
-                            val existingTile = tileList.find { it.pos == tp && it.image != null }
-                            if (existingTile != null) {
-                                newTiles.add(existingTile)
-                            } else {
-                                val cachedImage = tileProvider
-                                    .cachedTile(tp)
-                                newTiles.add(TileImage(tp, cachedImage))
-                            }
+                            newTileList.add(TilePos(tileZoom, x.toDouble(), y.toDouble()))
                         }
                     }
-                    tileList.clear()
-                    tileList.addAll(newTiles)
-                    invalidateCounter++
-                    //Loading tiles
-                    val tilesToLoad = newTiles.filter { it.image == null }
-                    log("load ${tilesToLoad.size}")
-                    tilesToLoad.forEach { tile ->
-                        try {
-                            val image = tileProvider.loadTile(tile.pos)
-                            tile.image = image
-                            log("Tile loaded: ${tile.pos}")
-                            invalidateCounter++
-                        } catch (err: CancellationException) {
-                            throw err // Propagate cancellation to stop when scope is canceled
-                        } catch (err: Throwable) {
-                            log(err)
+                    for (tileState in tileStateList) {
+                        launch {
+                            tileState.update(newTileList)
                         }
                     }
+                    visibleRange = range
                 }
             }
         }
@@ -156,10 +199,9 @@ class ViewPortState(
         return tilePosToOffset(tilePos)
     }
     fun tilePosToOffset(p: TilePos): Offset {
-        val size = tileProvider.tileSize
         return Offset(
-            x = ((p.x - centerPos.x) * size).toFloat(),
-            y = ((p.y - centerPos.y) * size).toFloat()
+            x = ((p.x - centerPos.x) * tileSize).toFloat(),
+            y = ((p.y - centerPos.y) * tileSize).toFloat()
         )
     }
 }
@@ -179,16 +221,14 @@ private class MapDrawScopeImpl(
 
 @Composable
 fun rememberViewPortState(
-    initialZoom: Float = 0f,
+    initialZoom: Float = 10f,
     initPos: GeoPoint = GeoPoint(0.0, 0.0),
-    tileProvider: TileProvider = TileProvider(
-        tileSize = 512,
-        tileLoaderUrl = ::dipul
-    )
+    tileSize: Int = 512,
+    vararg tileLoaderUrl: (TilePos) -> Url = arrayOf(::osmFree)
 ): ViewPortState {
     val scope = rememberCoroutineScope()
-    return remember(tileProvider) {
-        ViewPortState(initialZoom, initPos, tileProvider, scope)
+    return remember {
+        ViewPortState(scope, initialZoom, initPos, tileSize, *tileLoaderUrl)
     }
 }
 
@@ -203,9 +243,11 @@ fun TileMapView(
         val mapDrawScope = MapDrawScopeImpl(this, state)
         val frame = state.invalidateCounter
         translate(size.width / 2, size.height / 2) {
-            for (tile in state.tileList) {
-                tile.image?.let { image ->
-                    drawImage(image, dstOffset = state.calculateOffset(tile.pos), dstSize = state.tileSize)
+            for (tileState in state.tileStateList) {
+                for (tile in tileState.tileList) {
+                    tile.image?.let { image ->
+                        drawImage(image, dstOffset = state.calculateOffset(tile.pos), dstSize = state.size)
+                    }
                 }
             }
             onDraw(mapDrawScope)

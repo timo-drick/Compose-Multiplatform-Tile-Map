@@ -9,14 +9,43 @@ import io.ktor.client.statement.bodyAsBytes
 import io.ktor.http.URLBuilder
 import io.ktor.http.Url
 import io.ktor.http.appendPathSegments
+import io.ktor.http.isSuccess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.min
 
+private val client by lazy { HttpClient() }
+
+class TileProvider(
+    private val tileLoaderUrl: (TilePos) -> Url,
+) {
+    val inMemoryCache = mutableMapOf<TilePos, ByteArray>()
+    suspend fun loadTile(pos: TilePos) = withContext(Dispatchers.Default) {
+        val url = tileLoaderUrl(pos)
+        log("TileProvider.loadTile: $url")
+        val response = client.request(url)
+        if (response.status.isSuccess()) {
+            response.bodyAsBytes()
+                .also { inMemoryCache[pos] = it }
+                .decodeToImageBitmap()
+        } else {
+            log("TileProvider.loadTile: Failed to load tile from $url, status: ${response.status}")
+            null
+        }
+    }
+    fun cachedTile(pos: TilePos): ImageBitmap? =
+        inMemoryCache[pos]?.decodeToImageBitmap()
+}
+
 fun osmFree(pos: TilePos) = URLBuilder("https://tile.openstreetmap.org").apply {
     appendPathSegments(pos.zoom.toString(), pos.tileX.toString(), "${pos.tileY}.png")
 }.build()
+
+private const val mapboxToken = "xxx"//Config.MAPBOX_TOKEN
+
+fun mapbox(tileX: Int, tileY: Int, zoom: Int) =
+    "https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/512/$zoom/$tileX/$tileY?access_token=$mapboxToken"
 
 val layer = listOf(
     "flugplaetze", "flughaefen", "kontrollzonen", "flugbeschraenkungsgebiete", "bundesautobahnen", "bundesstrassen",
@@ -28,9 +57,22 @@ val layer = listOf(
 ).map { "dipul:$it" }
 
 val dipulBaseUrl = "https://sgx.geodatenzentrum.de/wms_topplus_open?REQUEST=GetMap&SERVICE=WMS&VERSION=1.3.0&FORMAT=image/png&STYLES=&TRANSPARENT=TRUE&LAYERS=web_scale_grau&TILED=true&WIDTH=256&HEIGHT=256&CRS=EPSG:3857"
-val dipulLayerBaseUrl = "    https://uas-betrieb.de/geoservices/dipul/wms?REQUEST=GetMap&SERVICE=WMS&VERSION=1.3.0&FORMAT=image%2Fpng&STYLES=&TRANSPARENT=TRUE&TILED=true&FORMAT_OPTIONS=dpi%3A180&WIDTH=512&HEIGHT=512&CRS=EPSG%3A3857"
 fun dipul(pos: TilePos) = URLBuilder(dipulBaseUrl).apply {
-    //parameters.append("LAYERS", layer.joinToString(","))
+    with(calculateBoundingBox(pos)) {
+        parameters.append("BBOX", "$startX,$startY,$endX,$endY")
+    }
+}.build()
+val dipulLayerBaseUrl = "https://uas-betrieb.de/geoservices/dipul/wms?REQUEST=GetMap&SERVICE=WMS&VERSION=1.3.0&FORMAT=image%2Fpng&STYLES=&TRANSPARENT=TRUE&TILED=true&FORMAT_OPTIONS=dpi%3A180&WIDTH=512&HEIGHT=512&CRS=EPSG%3A3857"
+fun dipulZones(pos: TilePos) = URLBuilder(dipulLayerBaseUrl).apply {
+    parameters.append("LAYERS", layer.joinToString(","))
+    with(calculateBoundingBox(pos)) {
+        parameters.append("BBOX", "$startX,$startY,$endX,$endY")
+    }
+}.build()
+
+data class BBox(val startX: Int, val startY: Int, val endX: Int, val endY: Int)
+
+fun calculateBoundingBox(pos: TilePos): BBox {
     val start = pos.toGeoPoint() // Left top corner of the tile
     val end = pos.copy(x = pos.x + 1, y = pos.y + 1).toGeoPoint() // Right bottom corner of the tile
     val meterStart = start.toMeter()
@@ -39,31 +81,10 @@ fun dipul(pos: TilePos) = URLBuilder(dipulBaseUrl).apply {
     val starty = min(meterEnd.y, meterStart.y)
     val endx = max(meterStart.x, meterEnd.x)
     val endy = max(meterStart.y, meterEnd.y)
-
-    parameters.append("BBOX", "$startx,$starty,$endx,$endy")
-}.build()
-
-
-private const val mapboxToken = "xxx"//Config.MAPBOX_TOKEN
-
-fun mapbox(tileX: Int, tileY: Int, zoom: Int) =
-    "https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/512/$zoom/$tileX/$tileY?access_token=$mapboxToken"
-
-private val client = HttpClient()
-
-class TileProvider(
-    val tileSize: Int,
-    private val tileLoaderUrl: (TilePos) -> Url,
-) {
-    val inMemoryCache = mutableMapOf<TilePos, ByteArray>()
-    suspend fun loadTile(pos: TilePos) = withContext(Dispatchers.Default) {
-        val url = tileLoaderUrl(pos)
-        log("TileProvider.loadTile: $url")
-        val response = client.request(url)
-        response.bodyAsBytes()
-            .also { inMemoryCache[pos] = it }
-            .decodeToImageBitmap()
-    }
-    fun cachedTile(pos: TilePos): ImageBitmap? =
-        inMemoryCache[pos]?.decodeToImageBitmap()
+    return BBox(
+        startX = startx.toInt(),
+        startY = starty.toInt(),
+        endX = endx.toInt(),
+        endY = endy.toInt()
+    )
 }
