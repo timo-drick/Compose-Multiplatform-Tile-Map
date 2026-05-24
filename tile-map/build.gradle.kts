@@ -13,13 +13,13 @@ plugins {
 }
 
 val mavenGroupId = "de.drick.compose"
-val mavenArtifactId = "edge-to-edge-preview"
+val mavenArtifactId = "composemultiplatformtilemap"
 val mavenVersion = "0.1.0"
 
 kotlin {
 
     android {
-        namespace = "de.moaps.composemultiplatformtilemap"
+        namespace = "de.drick.compose.tilemap"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = 26
         androidResources {

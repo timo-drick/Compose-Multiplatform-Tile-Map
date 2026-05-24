@@ -29,14 +29,14 @@ This repository has been migrated to a library-first setup. The reusable map com
 The project is configured for Maven publishing via the `tile-map` module.
 
 - **Group**: `de.drick.compose`
-- **Artifact**: `edge-to-edge-preview`
+- **Artifact**: `composemultiplatformtilemap`
 - **Version**: `0.1.0`
 
 Include it in your project from Maven Central (once published):
 
 ```kotlin
 dependencies {
-    implementation("de.drick.compose:edge-to-edge-preview:0.1.0")
+    implementation("de.drick.compose:composemultiplatformtilemap:0.1.0")
 }
 ```
 
@@ -55,8 +55,6 @@ The map view is implemented using several key components:
 To try the project locally, run the sample/demo applications:
 
 - **Sample desktop app**: Run `:sample:jvmRun`
-- **Compose app (Web)**: Run `:composeApp:wasmJsBrowserDevelopmentRun`
-- **Compose app (Android/iOS/Desktop)**: Use the run configurations in your IDE
 
 ## Resources
 
