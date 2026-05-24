@@ -1,6 +1,8 @@
 # Compose Multiplatform Tile Map
 
-A platform-independent, tile-based map view implementation written in pure Compose Multiplatform common code. This project provides a reusable component for displaying interactive maps across Android, iOS, Desktop, and Web platforms.
+A platform-independent, tile-based map view implementation written in pure Compose Multiplatform common code.
+
+This repository has been migrated to a library-first setup. The reusable map component now lives in the `tile-map` module and is published as a Maven library.
 
 ## Features
 
@@ -14,11 +16,29 @@ A platform-independent, tile-based map view implementation written in pure Compo
 
 ## Project Structure
 
-* `/composeApp` contains the shared code for the Compose Multiplatform application:
+* `/tile-map` contains the published Kotlin Multiplatform library module
   - `commonMain` contains the platform-independent map implementation
-  - Other folders contain platform-specific code for Android, iOS, Desktop, and Web
+  - platform source sets provide Android/JVM/Wasm support
 
-* `/iosApp` contains the iOS application entry point
+* `/sample` contains a sample app that demonstrates library usage
+
+* `/composeApp` and `/iosApp` are app modules used for local/demo runs
+
+## Maven Library
+
+The project is configured for Maven publishing via the `tile-map` module.
+
+- **Group**: `de.drick.compose`
+- **Artifact**: `edge-to-edge-preview`
+- **Version**: `0.1.0`
+
+Include it in your project from Maven Central (once published):
+
+```kotlin
+dependencies {
+    implementation("de.drick.compose:edge-to-edge-preview:0.1.0")
+}
+```
 
 ## Implementation Details
 
@@ -32,12 +52,11 @@ The map view is implemented using several key components:
 
 ## Getting Started
 
-You can run the application on different platforms:
+To try the project locally, run the sample/demo applications:
 
-- **Web**: Run the `:composeApp:wasmJsBrowserDevelopmentRun` Gradle task
-- **Android**: Run the Android configuration in your IDE
-- **iOS**: Open the Xcode project in the `/iosApp` directory
-- **Desktop**: Run the Desktop configuration in your IDE
+- **Sample desktop app**: Run `:sample:jvmRun`
+- **Compose app (Web)**: Run `:composeApp:wasmJsBrowserDevelopmentRun`
+- **Compose app (Android/iOS/Desktop)**: Use the run configurations in your IDE
 
 ## Resources
 

@@ -1,8 +1,10 @@
 package de.drick.compose.tilemap
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.draggable2D
 import androidx.compose.foundation.gestures.rememberDraggable2DState
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,14 +19,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Fill
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
-val p1 = GeoPoint(52.51629369771545, 13.377614937339327)
-val p2 = GeoPoint(52.51460371598352, 13.35008338366604)
-val zoom = 11f
+val p1 = GeoPoint(50.16041006147746, 8.714076768439526)
+val p2 = GeoPoint(50.16951012919926, 8.714636717976504)
+private val zoom = 13f
 
 @Composable
-@Preview
 fun App() {
-    val state = rememberViewPortState(zoom, p1, 512, ::dipul, ::dipulZones)
+    val state = rememberViewPortState(
+        initialZoom = zoom,
+        initPos = p1,
+        tileSize = 512,
+        //tileProviderDipul,
+        tileProviderOsm,
+        //tileProviderMapBox,
+        tileProviderDipulZones,
+        tileProviderFrZones
+    )
     MaterialTheme {
         TileMapView(
             modifier = Modifier
@@ -53,5 +63,12 @@ fun App() {
                 Text("Zoom out")
             }
         }
+    }
+}
+
+@Composable
+private fun HelloWorldPreview() {
+    Box(Modifier.fillMaxSize().background(Color.Green)) {
+
     }
 }
