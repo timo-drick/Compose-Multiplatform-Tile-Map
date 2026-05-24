@@ -31,14 +31,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import composemultiplatformtilemap.tile_map.generated.resources.Res
+import composemultiplatformtilemap.tile_map.generated.resources.preview_map
 import de.drick.core.log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
-import compose_multiplatform_tilemap.tile_map.generated.resources.Res
-import compose_multiplatform_tilemap.tile_map.generated.resources.preview_map
 import kotlin.math.PI
 import kotlin.math.atan
 import kotlin.math.cos

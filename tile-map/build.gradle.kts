@@ -14,7 +14,13 @@ plugins {
 
 val mavenGroupId = "de.drick.compose"
 val mavenArtifactId = "composemultiplatformtilemap"
-val mavenVersion = "0.1.0"
+val baseVersion = "0.1.0"
+
+val isSnapshot = providers.environmentVariable("PUBLISH_SNAPSHOT")
+    .map { it.equals("true", ignoreCase = true) }
+    .orElse(false)
+
+val mavenVersion = if (isSnapshot.get()) "$baseVersion-SNAPSHOT" else baseVersion
 
 kotlin {
 

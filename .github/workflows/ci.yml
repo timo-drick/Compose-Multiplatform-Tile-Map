@@ -1,0 +1,35 @@
+name: edge to edge CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set Up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: 🐘 Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: 🔨 Build project
+        run: ./gradlew assemble
+
+      - name: Lint check
+        run: ./gradlew lint
+
+      - name: Preview screenshot tests
+        run: ./gradlew :samples:preview_screenshot_test:validateScreenshotTest
+
