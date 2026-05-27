@@ -2,7 +2,6 @@ package de.drick.compose.tilemap
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.decodeToImageBitmap
-import de.drick.core.log
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
@@ -69,7 +68,7 @@ private val client by lazy {
             install(Logging) {
                 logger = object : Logger {
                     override fun log(message: String) {
-                        de.drick.core.log("HTTP Client $message")
+                        println("HTTP Client $message")
                     }
                 }
                 level = LogLevel.HEADERS
@@ -97,7 +96,6 @@ suspend fun getElevation(point: GeoPoint): Double? {
         val result = Json.decodeFromString<ElevationResult>(resultString)
         return result.elevation.firstOrNull()
     } else {
-        log("Failed to load elevation from $url, status: ${response.status}")
         return null
     }
 }
@@ -119,17 +117,14 @@ class TileProvider(
                     inMemoryCache[pos] = bodyBytes
                     image
                 } else {
-                    log("$name invalid data: ${response.bodyAsText()}")
                     null
                 }
             } catch (int: CancellationException) {
                 throw int
             } catch (@Suppress("TooGenericExceptionCaught") err: Exception) {
-                log("No valid image data:\n${response.bodyAsText()}", err)
                 null
             }
         } else {
-            log("$name: Failed to load tile from $url, status: ${response.status}")
             null
         }
     }

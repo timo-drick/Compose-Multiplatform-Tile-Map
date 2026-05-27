@@ -13,14 +13,19 @@ plugins {
 }
 
 val mavenGroupId = "de.drick.compose"
-val mavenArtifactId = "composemultiplatformtilemap"
+val mavenArtifactId = "multiplatformtilemap"
 val baseVersion = "0.1.0"
+
+val isPublishingToMavenLocal = gradle.startParameter.taskNames.any {
+    it.contains("publishToMavenLocal", ignoreCase = true)
+}
 
 val isSnapshot = providers.environmentVariable("PUBLISH_SNAPSHOT")
     .map { it.equals("true", ignoreCase = true) }
     .orElse(false)
 
-val mavenVersion = if (isSnapshot.get()) "$baseVersion-SNAPSHOT" else baseVersion
+
+val mavenVersion = if (isSnapshot.get() || isPublishingToMavenLocal) "$baseVersion-SNAPSHOT" else baseVersion
 
 kotlin {
 
@@ -49,8 +54,6 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                implementation(project(":log"))
-
                 implementation(libs.kotlin.stdlib)
 
                 implementation(libs.compose.foundation)
@@ -91,7 +94,9 @@ mavenPublishing {
         )
     )
     publishToMavenCentral(automaticRelease = true)
-    signAllPublications()
+    if (!isPublishingToMavenLocal) {
+        signAllPublications()
+    }
 
     pom {
         name.set("Compose Multiplatform Tile Map")

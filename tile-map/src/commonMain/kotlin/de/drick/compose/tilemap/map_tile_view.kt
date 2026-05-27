@@ -33,7 +33,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import composemultiplatformtilemap.tile_map.generated.resources.Res
 import composemultiplatformtilemap.tile_map.generated.resources.preview_map
-import de.drick.core.log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

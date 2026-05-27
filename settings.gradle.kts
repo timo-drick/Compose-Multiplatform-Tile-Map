@@ -36,3 +36,4 @@ plugins {
 include(":tile-map")
 include(":log")
 include(":sample")
+include(":sample-android")
