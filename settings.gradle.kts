@@ -34,6 +34,6 @@ plugins {
 
 //include(":composeApp")
 include(":tile-map")
-include(":log")
-include(":sample")
-include(":sample-android")
+include(":samples:common")
+include(":samples:jvm")
+include(":samples:android")

@@ -8,13 +8,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
-import de.drick.compose.tilemap.BuildConfig
 import de.drick.compose.tilemap.GeoPoint
 import de.drick.compose.tilemap.TileMapView
 import de.drick.compose.tilemap.rememberViewPortState
 import de.drick.compose.tilemap.tileProviderOsm
-
-const val MAPBOX_TOKEN = BuildConfig.MAPBOX_TOKEN
 
 @Composable
 fun SampleApp() {
@@ -23,7 +20,7 @@ fun SampleApp() {
         initPos = GeoPoint(52.5207, 13.4094), // Berlin
         tileProvider = arrayOf(tileProviderOsm)
     )
-    /*TileMapView(
+    TileMapView(
         state = state,
         modifier = Modifier
             .fillMaxSize()
@@ -45,6 +42,6 @@ fun SampleApp() {
                     }
                 }
             }
-    )*/
-    TestMapUavZonesPortugal(Modifier.fillMaxSize())
+    )
+    //TestMapUavZonesPortugal(Modifier.fillMaxSize())
 }
