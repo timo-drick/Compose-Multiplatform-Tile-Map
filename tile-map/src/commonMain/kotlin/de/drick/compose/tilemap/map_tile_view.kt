@@ -41,6 +41,7 @@ import org.jetbrains.compose.resources.painterResource
 import kotlin.math.PI
 import kotlin.math.atan
 import kotlin.math.cos
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sinh
 
@@ -140,9 +141,12 @@ class ViewPortState(
     var zoom by mutableStateOf(initialZoom)
         private set
     val tileZoom get() = zoom.toInt()
+    /** Scale factor for fractional zoom: tiles are rendered at tileSize * tileScale */
+    val tileScale: Float get() = 2f.pow(zoom - tileZoom)
+    val scaledTileSize: Float get() = tileSize * tileScale
     var centerPos by mutableStateOf(initialPos.toTilePos(tileZoom))
     var tileStateList = tileProviderList.toList().toStateList()
-    val size = IntSize(tileSize, tileSize)
+    val size: IntSize get() = IntSize(scaledTileSize.roundToInt(), scaledTileSize.roundToInt())
 
     private var sizePx = Size(0f, 0f)
     var invalidateCounter by mutableIntStateOf(0)
@@ -210,8 +214,8 @@ class ViewPortState(
         update()
     }
     fun movePx(x: Float, y: Float) {
-        val newX = centerPos.x - x / tileSize
-        val newY = centerPos.y - y / tileSize
+        val newX = centerPos.x - x / scaledTileSize
+        val newY = centerPos.y - y / scaledTileSize
         //log("Old pos: $centerPos -> mx: $x my: $y")
         centerPos = centerPos.copy(
             x = newX,
@@ -224,15 +228,15 @@ class ViewPortState(
     private var visibleRange = VisibleTileRange(0, 0, 0, 0)
 
     fun calculateOffset(pos: TilePos) = IntOffset(
-        ((pos.x - centerPos.x) * tileSize).roundToInt(),
-        ((pos.y - centerPos.y) * tileSize).roundToInt()
+        ((pos.x - centerPos.x) * scaledTileSize).roundToInt(),
+        ((pos.y - centerPos.y) * scaledTileSize).roundToInt()
     )
     private var updateJob: Job? = null
 
     private fun update() {
         if (sizePx != Size.Zero) {
-            val minX = (sizePx.width / 2f / tileSize).roundToInt()
-            val minY = (sizePx.height / 2f / tileSize).roundToInt()
+            val minX = (sizePx.width / 2f / scaledTileSize).roundToInt()
+            val minY = (sizePx.height / 2f / scaledTileSize).roundToInt()
             val range = VisibleTileRange(
                 startX = centerPos.tileX - minX - 1,
                 stopX = centerPos.tileX + minX + 1,
@@ -267,7 +271,7 @@ class ViewPortState(
     fun metersPerPixel(): Double {
         val latRad = centerPos.toGeoPoint().latitude.toRadians()
         val n = 1 shl tileZoom
-        return 2.0 * PI * EARTH_RADIUS_WGS84 * cos(latRad) / (n * tileSize)
+        return 2.0 * PI * EARTH_RADIUS_WGS84 * cos(latRad) / (n * scaledTileSize)
     }
 
     fun geoPointToOffset(p: GeoPoint): Offset {
@@ -276,8 +280,8 @@ class ViewPortState(
     }
     fun tilePosToOffset(p: TilePos): Offset {
         return Offset(
-            x = ((p.x - centerPos.x) * tileSize).toFloat(),
-            y = ((p.y - centerPos.y) * tileSize).toFloat()
+            x = ((p.x - centerPos.x) * scaledTileSize).toFloat(),
+            y = ((p.y - centerPos.y) * scaledTileSize).toFloat()
         )
     }
 }
