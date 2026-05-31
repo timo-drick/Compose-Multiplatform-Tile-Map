@@ -1,60 +1,96 @@
 # Compose Multiplatform Tile Map
 
-A platform-independent, tile-based map view implementation written in pure Compose Multiplatform common code.
+A platform-independent, tile-based map component written in pure Compose Multiplatform common code.
 
-This repository has been migrated to a library-first setup. The reusable map component now lives in the `tile-map` module and is published as a Maven library.
+The reusable map library lives in `tile-map` and the `samples` folder show how to use the library.
 
 ## Features
 
-- **Pure Kotlin Implementation**: Written entirely in Kotlin using Compose Multiplatform for cross-platform compatibility
-- **Tile-Based Rendering**: Efficiently loads and displays map tiles based on the current viewport
-- **Multiple Map Sources**: Supports OpenStreetMap and Mapbox tile sources
-- **Viewport Management**: Handles panning, zooming, and viewport calculations
-- **Geographic Projections**: Converts between geographic coordinates (latitude/longitude) and tile coordinates
-- **Memory Efficient**: Implements LRU caching for loaded tiles
-- **Custom Drawing**: Allows drawing custom elements (markers, lines, shapes) on top of the map
+- Pure Kotlin + Compose Multiplatform implementation
+- Cross-platform targets in the library: Android, JVM, and WasmJS
+- Tile rendering with viewport-aware loading
+- Built-in gesture integration via `tileMapPointerInput(...)`
+- Map providers for OpenStreetMap and Mapbox variants
+- Geographic conversion utilities (`GeoPoint`, `TilePos`, projection helpers)
+- Overlay drawing support through `TileMapView(onDraw = { ... })`
+- Dynamic tile provider switching (for light/dark mode use cases)
 
 ## Project Structure
 
-* `/tile-map` contains the published Kotlin Multiplatform library module
-  - `commonMain` contains the platform-independent map implementation
-  - platform source sets provide Android/JVM/Wasm support
-
-* `/sample` contains a sample app that demonstrates library usage
-
-* `/composeApp` and `/iosApp` are app modules used for local/demo runs
+- `/tile-map`: published Kotlin Multiplatform library module
+- `/samples/common`: shared sample UI/composables using `TileMapView`
+- `/samples/jvm`: desktop runner for the sample app
+- `/samples/android`: Android runner for the sample app
 
 ## Maven Library
 
-The project is configured for Maven publishing via the `tile-map` module.
+Published from `tile-map`:
 
-- **Group**: `de.drick.compose`
-- **Artifact**: `composemultiplatformtilemap`
-- **Version**: `0.1.0`
-
-Include it in your project from Maven Central (once published):
+- Group: `de.drick.compose`
+- Artifact: `multiplatformtilemap`
+- Version: `0.2.0`
 
 ```kotlin
 dependencies {
-    implementation("de.drick.compose:composemultiplatformtilemap:0.1.0")
+    implementation("de.drick.compose:multiplatformtilemap:0.2.0")
 }
 ```
 
-## Implementation Details
+## Using `TileMapView`
 
-The map view is implemented using several key components:
+### Minimal setup
 
-- **TileMapView**: The main composable function that renders the map
-- **ViewPortState**: Manages the state of the map view (zoom, center position)
-- **TileProvider**: Interface for loading map tiles with implementations for different sources
-- **GeoPoint/TilePos**: Data classes for handling geographic and tile coordinates
-- **Tile Math**: Functions for converting between geographic and tile coordinates
+```kotlin
+@Composable
+fun SimpleMap(mapboxToken: String) {
+    val state = rememberViewPortState(
+        initialZoom = 12f,
+        initPos = GeoPoint(52.5207, 13.4094), // Berlin
+        tileProvider = arrayOf(tileProviderMapBoxSat(mapboxToken))
+    )
 
-## Getting Started
+    TileMapView(
+        state = state,
+        modifier = Modifier
+            .fillMaxSize()
+            .tileMapPointerInput(state)
+    )
+}
+```
 
-To try the project locally, run the sample/demo applications:
+### Draw custom overlays
 
-- **Sample desktop app**: Run `:sample:jvmRun`
+```kotlin
+@Composable
+fun OverlayMap(state: ViewPortState, circles: List<Pair<GeoPoint, Float>>) {
+    TileMapView(
+        state = state,
+        modifier = Modifier
+            .fillMaxSize()
+            .tileMapPointerInput(state)
+    ) {
+        circles.forEach { (point, radiusPx) ->
+            drawCircle(
+                color = Color.Red.copy(alpha = 0.3f),
+                center = point.toOffset(),
+                radius = radiusPx
+            )
+        }
+    }
+}
+```
+
+## Sample Implementation References
+
+- Minimal app setup: `samples/common/src/commonMain/kotlin/de/drick/compose/tilemap/sample/SampleApp.kt`
+- Advanced overlay example (`onDraw`, polygons/circles):
+  `samples/common/src/commonMain/kotlin/de/drick/compose/tilemap/sample/test_vector_uav_zones.kt`
+
+Run desktop sample:
+
+```bash
+./gradlew :samples:jvm:run
+```
 
 ## Resources
 

@@ -14,7 +14,7 @@ plugins {
 
 val mavenGroupId = "de.drick.compose"
 val mavenArtifactId = "multiplatformtilemap"
-val baseVersion = "0.1.0"
+val baseVersion = "0.2.0"
 
 val isPublishingToMavenLocal = gradle.startParameter.taskNames.any {
     it.contains("publishToMavenLocal", ignoreCase = true)
