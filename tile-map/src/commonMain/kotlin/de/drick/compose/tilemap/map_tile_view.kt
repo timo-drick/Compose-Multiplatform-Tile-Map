@@ -154,7 +154,7 @@ class ViewPortState(
     val scaledTileSize: Float get() = tileSize * tileScale
     var centerPos by mutableStateOf(initialPos.toTilePos(tileZoom))
     var tileStateList = tileProviderList.toList().toStateList()
-    val size: IntSize get() = IntSize(scaledTileSize.roundToInt(), scaledTileSize.roundToInt())
+    val size: IntSize get() = IntSize(scaledTileSize.toInt() + 1, scaledTileSize.toInt() + 1)
 
     private var sizePx = Size(0f, 0f)
     var invalidateCounter by mutableIntStateOf(0)
