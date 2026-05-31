@@ -1,8 +1,8 @@
 package tilemap
 
+import composemultiplatformtilemap.tile_map.generated.resources.Res
 import de.drick.compose.tilemap.decodeUavZones
 import kotlinx.coroutines.test.runTest
-import compose_multiplatform_tilemap.tile_map.generated.resources.Res
 import kotlin.test.Test
 
 class UAVZonesParserTestCommon {

@@ -1,5 +1,7 @@
 # Compose Multiplatform Tile Map
 
+[![Maven Central](https://img.shields.io/maven-central/v/de.drick.compose/multiplatformtilemap)](https://mvnrepository.com/artifact/de.drick.compose/multiplatformtilemap)
+
 A platform-independent, tile-based map component written in pure Compose Multiplatform common code.
 
 The reusable map library lives in `tile-map` and the `samples` folder show how to use the library.
@@ -28,11 +30,12 @@ Published from `tile-map`:
 
 - Group: `de.drick.compose`
 - Artifact: `multiplatformtilemap`
-- Version: `0.2.0`
+
+[![Maven Central](https://img.shields.io/maven-central/v/de.drick.compose/multiplatformtilemap)](https://mvnrepository.com/artifact/de.drick.compose/multiplatformtilemap)
 
 ```kotlin
 dependencies {
-    implementation("de.drick.compose:multiplatformtilemap:0.2.0")
+    implementation("de.drick.compose:multiplatformtilemap:<version>")
 }
 ```
 
