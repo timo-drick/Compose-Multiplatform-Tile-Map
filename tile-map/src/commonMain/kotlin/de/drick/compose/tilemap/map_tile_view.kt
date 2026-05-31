@@ -21,6 +21,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -39,10 +40,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.atan
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.sin
 import kotlin.math.sinh
 
 
@@ -96,6 +99,9 @@ class TileLayerState(
     private val tileProvider: TileProvider,
     private val onInvalidate: () -> Unit
 ) {
+    fun findParentTile(pos: TilePos): Pair<ImageBitmap, Int>? =
+        tileProvider.cachedParentTile(pos)
+
     val tileList = mutableListOf<TileImage>()
     suspend fun update(
         newTileList: List<TilePos>
@@ -140,6 +146,8 @@ class ViewPortState(
     }
     var zoom by mutableStateOf(initialZoom)
         private set
+    /** Rotation angle in degrees (clockwise). */
+    var rotation by mutableStateOf(0f)
     val tileZoom get() = zoom.toInt()
     /** Scale factor for fractional zoom: tiles are rendered at tileSize * tileScale */
     val tileScale: Float get() = 2f.pow(zoom - tileZoom)
@@ -202,20 +210,110 @@ class ViewPortState(
             }
         }
     }
-    fun zoom(newZoom: Float, x: Float? = null, y: Float? = null) {
-        val xMove = x?.let { (it - (sizePx.width / 2f)) * 0.5f } ?: 0f
-        val yMove = y?.let { (it - (sizePx.height / 2f)) * 0.5f } ?: 0f
-        movePx(-xMove, -yMove)
 
-        val pos = centerPos.toGeoPoint() // After zoom level changed we need to recalculate the center position
+    fun zoom(newZoom: Float, centroid: Offset?) {
+        // Vector from screen center to centroid in pixels
+        val cx = centroid?.x?.let { it - sizePx.width / 2f } ?: 0f
+        val cy = centroid?.y?.let { it - sizePx.height / 2f } ?: 0f
+
+        // Rotate centroid offset to map coordinates
+        val rad = rotation.toDouble().toRadians()
+        val cosR = cos(rad).toFloat()
+        val sinR = sin(rad).toFloat()
+        val mapCx = cx * cosR + cy * sinR
+        val mapCy = -cx * sinR + cy * cosR
+
+        // Centroid offset in tile units at current zoom
+        val tileOffX = mapCx / scaledTileSize
+        val tileOffY = mapCy / scaledTileSize
+
+        // The geo position under the centroid (in tile coords at current zoom)
+        val centroidTileX = centerPos.x + tileOffX
+        val centroidTileY = centerPos.y + tileOffY
+
+        // Convert centroid tile position to geo so it survives the zoom change
+        val centroidGeo = TilePos(tileZoom, centroidTileX, centroidTileY).toGeoPoint()
+
+        // Apply new zoom
         smoothMoveJob?.cancel()
         zoom = newZoom
-        centerPos = pos.toTilePos(tileZoom)
+
+        // Recompute centroid position in new tile coords
+        val newCentroidTile = centroidGeo.toTilePos(tileZoom)
+
+        // New center = centroid tile pos minus the same pixel offset (in new tile units)
+        val newScaledTileSize = tileSize * 2f.pow(zoom - tileZoom)
+        val newTileOffX = mapCx / newScaledTileSize
+        val newTileOffY = mapCy / newScaledTileSize
+
+        centerPos = TilePos(
+            tileZoom,
+            newCentroidTile.x - newTileOffX,
+            newCentroidTile.y - newTileOffY
+        ).wrap()
         update()
     }
+    private var smoothZoomJob: Job? = null
+    fun smoothZoom(
+        newZoom: Float,
+        centroid: Offset?,
+        animationSpec: AnimationSpec<Float> = tween(durationMillis = 500, easing = LinearEasing)
+    ) {
+        smoothZoomJob?.cancel()
+
+        smoothZoomJob = scope.launch(Dispatchers.Main.immediate) {
+            val anim = Animatable(zoom)
+            anim.animateTo(newZoom, animationSpec) {
+                zoom(value, centroid)
+                update()
+            }
+        }
+    }
+
+    fun rotate(angleDelta: Float, centroid: Offset?) {
+        // Vector from screen center to centroid in pixels
+        val cx = centroid?.x?.let { it - sizePx.width / 2f } ?: 0f
+        val cy = centroid?.y?.let { it - sizePx.height / 2f } ?: 0f
+
+        // Convert centroid screen offset to map (tile) coordinates using current rotation
+        val radBefore = rotation.toDouble().toRadians()
+        val cosBefore = cos(radBefore).toFloat()
+        val sinBefore = sin(radBefore).toFloat()
+        val mapCx = cx * cosBefore - cy * sinBefore
+        val mapCy = cx * sinBefore + cy * cosBefore
+
+        // Geo point under the centroid (must stay fixed on screen)
+        val centroidTileX = centerPos.x + mapCx / scaledTileSize
+        val centroidTileY = centerPos.y + mapCy / scaledTileSize
+
+        // Apply rotation
+        rotation = (rotation + angleDelta) % 360f
+
+        // Convert same screen centroid offset to map coordinates using NEW rotation
+        val radAfter = rotation.toDouble().toRadians()
+        val cosAfter = cos(radAfter).toFloat()
+        val sinAfter = sin(radAfter).toFloat()
+        val mapCxAfter = cx * cosAfter - cy * sinAfter
+        val mapCyAfter = cx * sinAfter + cy * cosAfter
+
+        // New center so that centroid tile pos maps back to the same screen point
+        centerPos = centerPos.copy(
+            x = centroidTileX - mapCxAfter / scaledTileSize,
+            y = centroidTileY - mapCyAfter / scaledTileSize
+        ).wrap()
+
+        update()
+        invalidateCounter++
+    }
     fun movePx(x: Float, y: Float) {
-        val newX = centerPos.x - x / scaledTileSize
-        val newY = centerPos.y - y / scaledTileSize
+        // Rotate the pixel delta back to map coordinates
+        val rad = rotation.toDouble().toRadians()
+        val cosR = cos(rad).toFloat()
+        val sinR = sin(rad).toFloat()
+        val mapX = x * cosR + y * sinR
+        val mapY = -x * sinR + y * cosR
+        val newX = centerPos.x - mapX / scaledTileSize
+        val newY = centerPos.y - mapY / scaledTileSize
         //log("Old pos: $centerPos -> mx: $x my: $y")
         centerPos = centerPos.copy(
             x = newX,
@@ -235,8 +333,14 @@ class ViewPortState(
 
     private fun update() {
         if (sizePx != Size.Zero) {
-            val minX = (sizePx.width / 2f / scaledTileSize).roundToInt()
-            val minY = (sizePx.height / 2f / scaledTileSize).roundToInt()
+            // When rotated, the bounding box of the rotated viewport is larger
+            val rad = rotation.toDouble().toRadians()
+            val cosR = abs(cos(rad)).toFloat()
+            val sinR = abs(sin(rad)).toFloat()
+            val effectiveWidth = sizePx.width * cosR + sizePx.height * sinR
+            val effectiveHeight = sizePx.width * sinR + sizePx.height * cosR
+            val minX = (effectiveWidth / 2f / scaledTileSize).roundToInt()
+            val minY = (effectiveHeight / 2f / scaledTileSize).roundToInt()
             val range = VisibleTileRange(
                 startX = centerPos.tileX - minX - 1,
                 stopX = centerPos.tileX + minX + 1,
@@ -438,21 +542,41 @@ fun TileMapView(
         Canvas(modifier.clipToBounds()) {
             state.updateSize(size)
             val mapDrawScope = MapDrawScopeImpl(this, state)
-            val frame = state.invalidateCounter
+            val frame = state.invalidateCounter // needed to redraw when invalidated
             //log("Frame: $frame")
-            translate(size.width / 2, size.height / 2) {
+            rotate(-state.rotation) {
+                translate(size.width / 2, size.height / 2) {
                 for (tileState in state.tileStateList) {
                     for (tile in tileState.tileList) {
-                        tile.image?.let { image ->
+                        val image = tile.image
+                        if (image != null) {
                             drawImage(
                                 image = image,
                                 dstOffset = state.calculateOffset(tile.pos),
                                 dstSize = state.size
                             )
+                        } else {
+                            // Try to find a parent tile at a lower zoom level
+                            tileState.findParentTile(tile.pos)?.let { (parentImage, parentZoom) ->
+                                val zoomDiff = tile.pos.zoom - parentZoom
+                                val scale = 1 shl zoomDiff
+                                val subX = tile.pos.tileX % scale
+                                val subY = tile.pos.tileY % scale
+                                val srcTileWidth = parentImage.width / scale
+                                val srcTileHeight = parentImage.height / scale
+                                drawImage(
+                                    image = parentImage,
+                                    srcOffset = IntOffset(subX * srcTileWidth, subY * srcTileHeight),
+                                    srcSize = IntSize(srcTileWidth, srcTileHeight),
+                                    dstOffset = state.calculateOffset(tile.pos),
+                                    dstSize = state.size
+                                )
+                            }
                         }
                     }
                 }
                 onDraw(mapDrawScope)
+              }
             }
             drawScaleBar(state.metersPerPixel(), size, textMeasurer)
         }

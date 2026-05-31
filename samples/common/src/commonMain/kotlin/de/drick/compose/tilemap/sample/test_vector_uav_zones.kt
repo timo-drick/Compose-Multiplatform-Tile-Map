@@ -1,8 +1,6 @@
 package de.drick.compose.tilemap.sample
 
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.draggable2D
-import androidx.compose.foundation.gestures.rememberDraggable2DState
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -12,9 +10,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PointMode
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.pointerInput
 import de.drick.compose.tilemap.CircleProjection
 import de.drick.compose.tilemap.GeoPoint
 import de.drick.compose.tilemap.LonLat
@@ -27,6 +24,7 @@ import de.drick.compose.tilemap.ZoneGeometry
 import de.drick.compose.tilemap.loadUavZones
 import de.drick.compose.tilemap.metersToTileLength
 import de.drick.compose.tilemap.rememberViewPortState
+import de.drick.compose.tilemap.tileMapPointerInput
 import de.drick.compose.tilemap.tileProviderMapBoxDark
 import de.drick.compose.tilemap.tileProviderMapBoxLight
 import de.drick.compose.tilemap.toTilePos
@@ -73,31 +71,11 @@ fun TestMapUavZonesPortugal(
             uavZonePolygons = extractPolygons(geometryList, zoom, color)
         }
     }
-    val dragState = rememberDraggable2DState { offset ->
-        viewPortState.movePx(offset.x, offset.y)
-    }
     TileMapView(
         modifier = modifier
             .fillMaxSize()
             .focusable()
-            .draggable2D(dragState)
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        if (event.type == PointerEventType.Scroll) {
-                            val inputChange = event.changes.first()
-                            val scrollDelta = inputChange.scrollDelta.y.coerceIn(-1f, 1f)
-                            val zoom = (viewPortState.zoom - scrollDelta).coerceIn(1f, 19f)
-                            viewPortState.zoom(
-                                newZoom = zoom,
-                                x = inputChange.position.x,
-                                y = inputChange.position.y
-                            )
-                        }
-                    }
-                }
-            },
+            .tileMapPointerInput(viewPortState),
         state = viewPortState,
     ) {
         uavZoneCircles.forEach { zc ->
@@ -109,6 +87,19 @@ fun TestMapUavZonesPortugal(
         }
         uavZonePolygons.forEach { poly ->
             val points = poly.points.map { it.toOffset() }
+            if (points.size > 2) {
+                val path = Path().apply {
+                    moveTo(points.first().x, points.first().y)
+                    points.drop(1).forEach { point ->
+                        lineTo(point.x, point.y)
+                    }
+                    close()
+                }
+                drawPath(
+                    path = path,
+                    color = poly.color
+                )
+            }
             drawPoints(
                 points = points,
                 pointMode = PointMode.Polygon,

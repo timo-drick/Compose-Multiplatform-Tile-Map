@@ -130,6 +130,24 @@ class TileProvider(
     }
     fun cachedTile(pos: TilePos): ImageBitmap? =
         inMemoryCache[pos]?.decodeToImageBitmap()
+
+    /**
+     * Search for a cached tile at a lower zoom level that contains the given tile position.
+     * Returns the parent tile image and the zoom level it was found at, or null if none found.
+     */
+    fun cachedParentTile(pos: TilePos, minZoom: Int = 1): Pair<ImageBitmap, Int>? {
+        for (z in (pos.zoom - 1) downTo minZoom) {
+            val scale = 1 shl (pos.zoom - z)
+            val parentX = pos.tileX / scale
+            val parentY = pos.tileY / scale
+            val parentPos = TilePos(z, parentX.toDouble(), parentY.toDouble())
+            val image = cachedTile(parentPos)
+            if (image != null) {
+                return Pair(image, z)
+            }
+        }
+        return null
+    }
 }
 
 val tileProviderDipul = TileProvider(

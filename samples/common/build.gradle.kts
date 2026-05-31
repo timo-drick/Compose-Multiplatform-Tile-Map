@@ -24,7 +24,7 @@ val generateBuildConfig by tasks.registering {
         }
 
         val mapboxToken: String = System.getenv("MAPBOX_TOKEN")
-            ?: localProperties.getProperty("mapbox.token", "")
+            ?: localProperties.getProperty("MAPBOX_TOKEN", "")
 
         val dir = outputDir.get().asFile.resolve("de/drick/compose/tilemap/sample")
         dir.mkdirs()
