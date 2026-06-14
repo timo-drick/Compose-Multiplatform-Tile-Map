@@ -2,7 +2,10 @@ package de.drick.compose.tilemap
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.DecayAnimationSpec
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -212,20 +215,12 @@ class ViewPortState(
     }
 
     fun zoom(newZoom: Float, centroid: Offset?) {
-        // Vector from screen center to centroid in pixels
-        val cx = centroid?.x?.let { it - sizePx.width / 2f } ?: 0f
-        val cy = centroid?.y?.let { it - sizePx.height / 2f } ?: 0f
-
-        // Rotate centroid offset to map coordinates
-        val rad = rotation.toDouble().toRadians()
-        val cosR = cos(rad).toFloat()
-        val sinR = sin(rad).toFloat()
-        val mapCx = cx * cosR + cy * sinR
-        val mapCy = -cx * sinR + cy * cosR
+        flingJob?.cancel()
+        val mapCentroidOffset = rotateCounterClockwise(screenCenterRelativeOffset(centroid), rotation)
 
         // Centroid offset in tile units at current zoom
-        val tileOffX = mapCx / scaledTileSize
-        val tileOffY = mapCy / scaledTileSize
+        val tileOffX = mapCentroidOffset.x / scaledTileSize
+        val tileOffY = mapCentroidOffset.y / scaledTileSize
 
         // The geo position under the centroid (in tile coords at current zoom)
         val centroidTileX = centerPos.x + tileOffX
@@ -242,9 +237,8 @@ class ViewPortState(
         val newCentroidTile = centroidGeo.toTilePos(tileZoom)
 
         // New center = centroid tile pos minus the same pixel offset (in new tile units)
-        val newScaledTileSize = tileSize * 2f.pow(zoom - tileZoom)
-        val newTileOffX = mapCx / newScaledTileSize
-        val newTileOffY = mapCy / newScaledTileSize
+        val newTileOffX = mapCentroidOffset.x / scaledTileSize
+        val newTileOffY = mapCentroidOffset.y / scaledTileSize
 
         centerPos = TilePos(
             tileZoom,
@@ -271,53 +265,81 @@ class ViewPortState(
     }
 
     fun rotate(angleDelta: Float, centroid: Offset?) {
-        // Vector from screen center to centroid in pixels
-        val cx = centroid?.x?.let { it - sizePx.width / 2f } ?: 0f
-        val cy = centroid?.y?.let { it - sizePx.height / 2f } ?: 0f
+        flingJob?.cancel()
+        val centeredOffset = screenCenterRelativeOffset(centroid)
 
         // Convert centroid screen offset to map (tile) coordinates using current rotation
-        val radBefore = rotation.toDouble().toRadians()
-        val cosBefore = cos(radBefore).toFloat()
-        val sinBefore = sin(radBefore).toFloat()
-        val mapCx = cx * cosBefore - cy * sinBefore
-        val mapCy = cx * sinBefore + cy * cosBefore
+        val mapOffsetBefore = rotateClockwise(centeredOffset, rotation)
 
         // Geo point under the centroid (must stay fixed on screen)
-        val centroidTileX = centerPos.x + mapCx / scaledTileSize
-        val centroidTileY = centerPos.y + mapCy / scaledTileSize
+        val centroidTileX = centerPos.x + mapOffsetBefore.x / scaledTileSize
+        val centroidTileY = centerPos.y + mapOffsetBefore.y / scaledTileSize
 
         // Apply rotation
         rotation = (rotation + angleDelta) % 360f
 
         // Convert same screen centroid offset to map coordinates using NEW rotation
-        val radAfter = rotation.toDouble().toRadians()
-        val cosAfter = cos(radAfter).toFloat()
-        val sinAfter = sin(radAfter).toFloat()
-        val mapCxAfter = cx * cosAfter - cy * sinAfter
-        val mapCyAfter = cx * sinAfter + cy * cosAfter
+        val mapOffsetAfter = rotateClockwise(centeredOffset, rotation)
 
         // New center so that centroid tile pos maps back to the same screen point
         centerPos = centerPos.copy(
-            x = centroidTileX - mapCxAfter / scaledTileSize,
-            y = centroidTileY - mapCyAfter / scaledTileSize
+            x = centroidTileX - mapOffsetAfter.x / scaledTileSize,
+            y = centroidTileY - mapOffsetAfter.y / scaledTileSize
         ).wrap()
 
         update()
         invalidateCounter++
     }
     fun movePx(x: Float, y: Float) {
-        // Rotate the pixel delta back to map coordinates
-        val rad = rotation.toDouble().toRadians()
+        smoothMoveJob?.cancel()
+        //flingJob?.cancel()
+        moveCenterByScreenDelta(Offset(x, y))
+    }
+
+    private var flingJob: Job? = null
+    fun fling(initialVelocity: Offset, decay: DecayAnimationSpec<Offset> = exponentialDecay()) {
+        flingJob?.cancel()
+        flingJob = scope.launch(Dispatchers.Main.immediate) {
+            val anim = Animatable(Offset.Zero, Offset.VectorConverter)
+            var lastValue = Offset.Zero
+            anim.animateDecay(initialVelocity, decay) {
+                val delta = value - lastValue
+                moveCenterByScreenDelta(delta)
+                lastValue = value
+            }
+        }
+    }
+
+    private fun screenCenterRelativeOffset(offset: Offset?) = Offset(
+        x = offset?.x?.let { it - sizePx.width / 2f } ?: 0f,
+        y = offset?.y?.let { it - sizePx.height / 2f } ?: 0f
+    )
+
+    private fun rotateCounterClockwise(vector: Offset, angleDegrees: Float): Offset {
+        val rad = angleDegrees.toDouble().toRadians()
         val cosR = cos(rad).toFloat()
         val sinR = sin(rad).toFloat()
-        val mapX = x * cosR + y * sinR
-        val mapY = -x * sinR + y * cosR
-        val newX = centerPos.x - mapX / scaledTileSize
-        val newY = centerPos.y - mapY / scaledTileSize
-        //log("Old pos: $centerPos -> mx: $x my: $y")
+        return Offset(
+            x = vector.x * cosR + vector.y * sinR,
+            y = -vector.x * sinR + vector.y * cosR
+        )
+    }
+
+    private fun rotateClockwise(vector: Offset, angleDegrees: Float): Offset {
+        val rad = angleDegrees.toDouble().toRadians()
+        val cosR = cos(rad).toFloat()
+        val sinR = sin(rad).toFloat()
+        return Offset(
+            x = vector.x * cosR - vector.y * sinR,
+            y = vector.x * sinR + vector.y * cosR
+        )
+    }
+
+    private fun moveCenterByScreenDelta(delta: Offset) {
+        val mapDelta = rotateCounterClockwise(delta, rotation)
         centerPos = centerPos.copy(
-            x = newX,
-            y = newY
+            x = centerPos.x - mapDelta.x / scaledTileSize,
+            y = centerPos.y - mapDelta.y / scaledTileSize
         ).wrap() // make sure we do stay in the positive valid numbers
         update()
         invalidateCounter++
