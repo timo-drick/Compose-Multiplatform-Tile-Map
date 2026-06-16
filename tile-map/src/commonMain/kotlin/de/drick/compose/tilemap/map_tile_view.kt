@@ -21,16 +21,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.text.TextMeasurer
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.IntOffset
@@ -54,7 +48,10 @@ import kotlin.math.sinh
 
 data class TileImage(
     val pos: TilePos,
-    var image: ImageBitmap?
+    var image: ImageBitmap?,
+    var srcOffset: IntOffset,
+    var srcSize: IntSize,
+    var scaled: Boolean
 )
 
 data class TilePos(
@@ -102,9 +99,6 @@ class TileLayerState(
     private val tileProvider: TileProvider,
     private val onInvalidate: () -> Unit
 ) {
-    fun findParentTile(pos: TilePos): Pair<ImageBitmap, Int>? =
-        tileProvider.cachedParentTile(pos)
-
     val tileList = mutableListOf<TileImage>()
     suspend fun update(
         newTileList: List<TilePos>
@@ -116,22 +110,56 @@ class TileLayerState(
                 existingTile
             } else {
                 val cachedImage = tileProvider.cachedTile(tp)
-                TileImage(tp, cachedImage)
+                if (cachedImage != null) {
+                    TileImage(
+                        pos = tp,
+                        image = cachedImage,
+                        srcOffset = IntOffset.Zero,
+                        srcSize = IntSize(cachedImage.width, cachedImage.height),
+                        scaled = false
+                    )
+                } else {
+                    tileProvider.cachedParentTile(tp)?.let { (parentImage, parentZoom) ->
+                        val zoomDiff = tp.zoom - parentZoom
+                        val scale = 1 shl zoomDiff
+                        val subX = tp.tileX % scale
+                        val subY = tp.tileY % scale
+                        val srcTileWidth = parentImage.width / scale
+                        val srcTileHeight = parentImage.height / scale
+                        TileImage(
+                            pos = tp,
+                            image = parentImage,
+                            srcOffset = IntOffset(subX * srcTileWidth, subY * srcTileHeight),
+                            srcSize = IntSize(srcTileWidth, srcTileHeight),
+                            scaled = true
+                        )
+                    } ?: TileImage(
+                        pos = tp,
+                        image = null,
+                        srcOffset = IntOffset.Zero,
+                        srcSize = IntSize.Zero,
+                        scaled = false
+                    )
+                }
             }
         }
         tileList.clear()
         tileList.addAll(newTiles)
         onInvalidate()
         //Loading tiles
-        val tilesToLoad = newTiles.filter { it.image == null }
+        val tilesToLoad = newTiles.filter { it.image == null || it.scaled }
         log("${tileProvider.name}: load ${tilesToLoad.size}")
 
         tilesToLoad.forEach { tile ->
             log("${tileProvider.name}: loading...: ${tile.pos}")
-            val image = tileProvider.loadTile(tile.pos)
-            tile.image = image
-            log("${tileProvider.name}: loaded: ${tile.pos}")
-            onInvalidate()
+            tileProvider.loadTile(tile.pos)?.let { image ->
+                tile.image = image
+                tile.srcOffset = IntOffset.Zero
+                tile.srcSize = IntSize(image.width, image.height)
+                tile.scaled = false
+                log("${tileProvider.name}: loaded: ${tile.pos}")
+                onInvalidate()
+            }
         }
         log("${tileProvider.name}: Loading finished")
     }
@@ -216,7 +244,7 @@ class ViewPortState(
 
     fun zoom(newZoom: Float, centroid: Offset?) {
         flingJob?.cancel()
-        val mapCentroidOffset = rotateCounterClockwise(screenCenterRelativeOffset(centroid), rotation)
+        val mapCentroidOffset = screenCenterRelativeOffset(centroid).rotate(-rotation)
 
         // Centroid offset in tile units at current zoom
         val tileOffX = mapCentroidOffset.x / scaledTileSize
@@ -269,7 +297,7 @@ class ViewPortState(
         val centeredOffset = screenCenterRelativeOffset(centroid)
 
         // Convert centroid screen offset to map (tile) coordinates using current rotation
-        val mapOffsetBefore = rotateClockwise(centeredOffset, rotation)
+        val mapOffsetBefore = centeredOffset.rotate(rotation)
 
         // Geo point under the centroid (must stay fixed on screen)
         val centroidTileX = centerPos.x + mapOffsetBefore.x / scaledTileSize
@@ -279,7 +307,7 @@ class ViewPortState(
         rotation = (rotation + angleDelta) % 360f
 
         // Convert same screen centroid offset to map coordinates using NEW rotation
-        val mapOffsetAfter = rotateClockwise(centeredOffset, rotation)
+        val mapOffsetAfter = centeredOffset.rotate(rotation)
 
         // New center so that centroid tile pos maps back to the same screen point
         centerPos = centerPos.copy(
@@ -292,7 +320,6 @@ class ViewPortState(
     }
     fun movePx(x: Float, y: Float) {
         smoothMoveJob?.cancel()
-        //flingJob?.cancel()
         moveCenterByScreenDelta(Offset(x, y))
     }
 
@@ -315,28 +342,8 @@ class ViewPortState(
         y = offset?.y?.let { it - sizePx.height / 2f } ?: 0f
     )
 
-    private fun rotateCounterClockwise(vector: Offset, angleDegrees: Float): Offset {
-        val rad = angleDegrees.toDouble().toRadians()
-        val cosR = cos(rad).toFloat()
-        val sinR = sin(rad).toFloat()
-        return Offset(
-            x = vector.x * cosR + vector.y * sinR,
-            y = -vector.x * sinR + vector.y * cosR
-        )
-    }
-
-    private fun rotateClockwise(vector: Offset, angleDegrees: Float): Offset {
-        val rad = angleDegrees.toDouble().toRadians()
-        val cosR = cos(rad).toFloat()
-        val sinR = sin(rad).toFloat()
-        return Offset(
-            x = vector.x * cosR - vector.y * sinR,
-            y = vector.x * sinR + vector.y * cosR
-        )
-    }
-
     private fun moveCenterByScreenDelta(delta: Offset) {
-        val mapDelta = rotateCounterClockwise(delta, rotation)
+        val mapDelta = delta.rotate(rotation)
         centerPos = centerPos.copy(
             x = centerPos.x - mapDelta.x / scaledTileSize,
             y = centerPos.y - mapDelta.y / scaledTileSize
@@ -458,98 +465,11 @@ fun rememberViewPortState(
     return state
 }
 
-
-private val scaleSteps = listOf(
-    1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000,
-    20000, 50000, 100000, 200000, 500000, 1000000, 2000000
-)
-
-private fun DrawScope.drawScaleBar(
-    metersPerPixel: Double,
-    canvasSize: Size,
-    textMeasurer: TextMeasurer
-) {
-    val maxBarWidthPx = canvasSize.width / 2f
-    val maxBarMeters = maxBarWidthPx * metersPerPixel
-    val scaleMeters = scaleSteps.lastOrNull { it <= maxBarMeters } ?: scaleSteps.first()
-    val barWidthPx = (scaleMeters / metersPerPixel).toFloat()
-
-    val label = if (scaleMeters >= 1000) "${scaleMeters / 1000} km" else "$scaleMeters m"
-
-    val margin = 16f
-    val tickHeight = 8f
-    val barY = canvasSize.height - margin - tickHeight
-    val barStartX = margin
-    val barEndX = margin + barWidthPx
-
-    // White outline for contrast
-    val outlineColor = Color.White
-    val barColor = Color.Black
-    val strokeOutline = 4f
-    val strokeBar = 2f
-
-    // Draw outline
-    drawLine(
-        color = outlineColor,
-        start = Offset(barStartX, barY),
-        end = Offset(barEndX, barY),
-        strokeWidth = strokeOutline + strokeBar
-    )
-    drawLine(
-        color = outlineColor,
-        start = Offset(barStartX, barY - tickHeight / 2),
-        end = Offset(barStartX, barY + tickHeight / 2),
-        strokeWidth = strokeOutline + strokeBar
-    )
-    drawLine(
-        color = outlineColor,
-        start = Offset(barEndX, barY - tickHeight / 2),
-        end = Offset(barEndX, barY + tickHeight / 2),
-        strokeWidth = strokeOutline + strokeBar
-    )
-
-    // Draw bar
-    drawLine(barColor, Offset(barStartX, barY), Offset(barEndX, barY), strokeWidth = strokeBar)
-    drawLine(
-        color = barColor,
-        start = Offset(barStartX, barY - tickHeight / 2),
-        end = Offset(barStartX, barY + tickHeight / 2),
-        strokeWidth = strokeBar
-    )
-    drawLine(
-        color = barColor,
-        start = Offset(barEndX, barY - tickHeight / 2),
-        end = Offset(barEndX, barY + tickHeight / 2),
-        strokeWidth = strokeBar
-    )
-
-    // Draw label
-    val textLayoutResult = textMeasurer.measure(label, TextStyle(color = barColor, fontSize = 12.sp))
-    val textX = barStartX + (barWidthPx - textLayoutResult.size.width) / 2
-    val textY = barY - tickHeight / 2 - textLayoutResult.size.height - 2f
-    // White background for text
-    drawText(
-        textMeasurer = textMeasurer,
-        text = label,
-        topLeft = Offset(textX, textY),
-        style = TextStyle(
-            color = outlineColor,
-            fontSize = 12.sp,
-            shadow = androidx.compose.ui.graphics.Shadow(color = outlineColor, blurRadius = 4f)
-        )
-    )
-    drawText(
-        textMeasurer = textMeasurer,
-        text = label,
-        topLeft = Offset(textX, textY),
-        style = TextStyle(color = barColor, fontSize = 12.sp)
-    )
-}
-
 @Composable
 fun TileMapView(
     state: ViewPortState,
     modifier: Modifier = Modifier,
+    onDrawLabel: MapDrawScope.() -> Unit = {},
     onDraw: MapDrawScope.() -> Unit = {}
 ) {
     if (LocalInspectionMode.current) {
@@ -560,7 +480,6 @@ fun TileMapView(
             contentScale = ContentScale.Crop
         )
     } else {
-        val textMeasurer = rememberTextMeasurer()
         Canvas(modifier.clipToBounds()) {
             state.updateSize(size)
             val mapDrawScope = MapDrawScopeImpl(this, state)
@@ -568,39 +487,24 @@ fun TileMapView(
             //log("Frame: $frame")
             rotate(-state.rotation) {
                 translate(size.width / 2, size.height / 2) {
-                for (tileState in state.tileStateList) {
-                    for (tile in tileState.tileList) {
-                        val image = tile.image
-                        if (image != null) {
-                            drawImage(
-                                image = image,
-                                dstOffset = state.calculateOffset(tile.pos),
-                                dstSize = state.size
-                            )
-                        } else {
-                            // Try to find a parent tile at a lower zoom level
-                            tileState.findParentTile(tile.pos)?.let { (parentImage, parentZoom) ->
-                                val zoomDiff = tile.pos.zoom - parentZoom
-                                val scale = 1 shl zoomDiff
-                                val subX = tile.pos.tileX % scale
-                                val subY = tile.pos.tileY % scale
-                                val srcTileWidth = parentImage.width / scale
-                                val srcTileHeight = parentImage.height / scale
+                    for (tileState in state.tileStateList) {
+                        for (tile in tileState.tileList) {
+                            val image = tile.image
+                            if (image != null) {
                                 drawImage(
-                                    image = parentImage,
-                                    srcOffset = IntOffset(subX * srcTileWidth, subY * srcTileHeight),
-                                    srcSize = IntSize(srcTileWidth, srcTileHeight),
+                                    image = image,
+                                    srcOffset = tile.srcOffset,
+                                    srcSize = tile.srcSize,
                                     dstOffset = state.calculateOffset(tile.pos),
                                     dstSize = state.size
                                 )
                             }
                         }
                     }
+                    onDraw(mapDrawScope)
                 }
-                onDraw(mapDrawScope)
-              }
             }
-            drawScaleBar(state.metersPerPixel(), size, textMeasurer)
+            onDrawLabel(mapDrawScope)
         }
     }
 }

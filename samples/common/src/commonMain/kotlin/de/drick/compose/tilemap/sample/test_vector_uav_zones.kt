@@ -45,17 +45,9 @@ data class MapPolygon(
 
 @Composable
 fun TestMapUavZonesPortugal(
+    viewPortState: ViewPortState,
     modifier: Modifier = Modifier,
-    isDarkMode: Boolean = false
 ) {
-    val viewPortState = rememberViewPortState(
-        isDarkMode = isDarkMode,
-        initialZoom = 2f,
-        tileSize = 1024,
-        darkTileProvider = tileProviderMapBoxDark(MAPBOX_TOKEN),
-        lightTileProvider = tileProviderMapBoxLight(MAPBOX_TOKEN)
-    )
-
     var zones by remember { mutableStateOf<UASZoneData?>(null) }
     var uavZoneCircles by remember { mutableStateOf<List<MapCircle>>(emptyList()) }
     var uavZonePolygons by remember { mutableStateOf<List<MapPolygon>>(emptyList()) }
@@ -63,7 +55,7 @@ fun TestMapUavZonesPortugal(
         zones = loadUavZones()
     }
     LaunchedEffect(zones, viewPortState.zoom) {
-        val zoom = viewPortState.zoom.toInt()
+        val zoom = viewPortState.tileZoom
         val color = Color.Red.copy(alpha = 0.3f)
         zones?.let { zoneData ->
             val geometryList = zoneData.features.flatMap { it.geometry }

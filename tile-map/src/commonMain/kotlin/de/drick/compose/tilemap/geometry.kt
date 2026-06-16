@@ -1,5 +1,6 @@
 package de.drick.compose.tilemap
 
+import androidx.compose.ui.geometry.Offset
 import de.drick.compose.tilemap.GeoPointMath.distanceTo
 import de.drick.compose.tilemap.GeoPointMath.toVec2
 import kotlinx.serialization.Serializable
@@ -130,6 +131,16 @@ private fun calculateFinalBearing(start: GeoPoint, end: GeoPoint): Double {
     return (bear + 180.0) % 360.0
 }
 
+fun Offset.rotate(angleDegrees: Float): Offset {
+    val vector = this
+    val rad = angleDegrees.toDouble().toRadians()
+    val cosR = cos(rad).toFloat()
+    val sinR = sin(rad).toFloat()
+    return Offset(
+        x = vector.x * cosR - vector.y * sinR,
+        y = vector.x * sinR + vector.y * cosR
+    )
+}
 
 data class Vec2(val x: Double, val y: Double) {
     operator fun minus(v: Vec2) = Vec2(x - v.x, y - v.y)
