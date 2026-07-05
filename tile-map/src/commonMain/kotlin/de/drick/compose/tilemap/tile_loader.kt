@@ -102,8 +102,15 @@ class TileProvider(
     val name: String,
     private val tileLoaderUrl: (TilePos) -> Url,
 ) {
+    data class TileKey(
+        val x: Int,
+        val y: Int,
+        val zoom: Int
+    )
+    fun TilePos.toKey() = TileKey(x.toInt(), y.toInt(), zoom)
+
     override fun toString() = name
-    val inMemoryCache = mutableMapOf<TilePos, ByteArray>()
+    val inMemoryCache = mutableMapOf<TileKey, ByteArray>()
     suspend fun loadTile(pos: TilePos) = withContext(Dispatchers.Default) {
         val url = tileLoaderUrl(pos.wrap())
         val response = client.request(url)
@@ -112,7 +119,7 @@ class TileProvider(
             try {
                 val image = bodyBytes.decodeToImageBitmap()
                 if (image.height > 0 && image.width > 0) {
-                    inMemoryCache[pos] = bodyBytes
+                    inMemoryCache[pos.toKey()] = bodyBytes
                     image
                 } else {
                     null
@@ -127,7 +134,7 @@ class TileProvider(
         }
     }
     fun cachedTile(pos: TilePos): ImageBitmap? =
-        inMemoryCache[pos]?.decodeToImageBitmap()
+        inMemoryCache[pos.toKey()]?.decodeToImageBitmap()
 
     /**
      * Search for a cached tile at a lower zoom level that contains the given tile position.
