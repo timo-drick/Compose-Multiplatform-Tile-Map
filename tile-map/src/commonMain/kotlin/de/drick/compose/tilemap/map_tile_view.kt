@@ -36,6 +36,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan
@@ -179,16 +180,34 @@ class ViewPortState(
         private set
     /** Rotation angle in degrees (clockwise). */
     var rotation by mutableStateOf(0f)
+        private set
     val tileZoom get() = zoom.toInt()
     /** Scale factor for fractional zoom: tiles are rendered at tileSize * tileScale */
     val tileScale: Float get() = 2f.pow(zoom - tileZoom)
     val scaledTileSize: Float get() = tileSize * tileScale
     var centerPos by mutableStateOf(initialPos.toTilePos(tileZoom))
+        private set
     var tileStateList = tileProviderList.toList().toStateList()
+        private set
     val size: IntSize get() = IntSize(scaledTileSize.toInt() + 1, scaledTileSize.toInt() + 1)
 
     private var sizePx = Size(0f, 0f)
+
+    /**
+     * Increased every time when the state changed
+     */
     var invalidateCounter by mutableIntStateOf(0)
+        private set
+
+    private inline fun mutateOnMain(crossinline block: () -> Unit) {
+        if (Dispatchers.Main.immediate.isDispatchNeeded(EmptyCoroutineContext)) {
+            scope.launch(Dispatchers.Main.immediate) {
+                block()
+            }
+        } else {
+            block()
+        }
+    }
 
     fun List<TileProvider>.toStateList() = map { provider ->
         TileLayerState(provider) {
@@ -199,13 +218,15 @@ class ViewPortState(
 
     fun updateTileProvider(vararg providerList: TileProvider){
         val newStateList = providerList.toList().toStateList()
-        tileStateList = newStateList
-        visibleRange = VisibleTileRange(0, 0, 0, 0)
-        update()
-        log("Update tile provider")
+        mutateOnMain {
+            tileStateList = newStateList
+            visibleRange = VisibleTileRange(0, 0, 0, 0)
+            update()
+            log("Update tile provider")
+        }
     }
 
-    fun updateSize(size: Size) {
+    internal fun updateSize(size: Size) {
         if (size != sizePx) {
             log("Update size: $size old($sizePx)")
             sizePx = size
@@ -214,8 +235,10 @@ class ViewPortState(
     }
 
     fun center(point: GeoPoint) {
-        centerPos = point.toTilePos(tileZoom)
-        update()
+        mutateOnMain {
+            centerPos = point.toTilePos(tileZoom)
+            update()
+        }
     }
 
     private var smoothMoveJob: Job? = null
@@ -243,6 +266,12 @@ class ViewPortState(
     }
 
     fun zoom(newZoom: Float, centroid: Offset?) {
+        mutateOnMain {
+            zoomInternal(newZoom, centroid)
+        }
+    }
+
+    private fun zoomInternal(newZoom: Float, centroid: Offset?) {
         flingJob?.cancel()
         val mapCentroidOffset = screenCenterRelativeOffset(centroid).rotate(-rotation)
 
@@ -286,37 +315,39 @@ class ViewPortState(
         smoothZoomJob = scope.launch(Dispatchers.Main.immediate) {
             val anim = Animatable(zoom)
             anim.animateTo(newZoom, animationSpec) {
-                zoom(value, centroid)
+                zoomInternal(value, centroid)
                 update()
             }
         }
     }
 
     fun rotate(angleDelta: Float, centroid: Offset?) {
-        flingJob?.cancel()
-        val centeredOffset = screenCenterRelativeOffset(centroid)
+        mutateOnMain {
+            flingJob?.cancel()
+            val centeredOffset = screenCenterRelativeOffset(centroid)
 
-        // Convert centroid screen offset to map (tile) coordinates using current rotation
-        val mapOffsetBefore = centeredOffset.rotate(rotation)
+            // Convert centroid screen offset to map (tile) coordinates using current rotation
+            val mapOffsetBefore = centeredOffset.rotate(rotation)
 
-        // Geo point under the centroid (must stay fixed on screen)
-        val centroidTileX = centerPos.x + mapOffsetBefore.x / scaledTileSize
-        val centroidTileY = centerPos.y + mapOffsetBefore.y / scaledTileSize
+            // Geo point under the centroid (must stay fixed on screen)
+            val centroidTileX = centerPos.x + mapOffsetBefore.x / scaledTileSize
+            val centroidTileY = centerPos.y + mapOffsetBefore.y / scaledTileSize
 
-        // Apply rotation
-        rotation = (rotation + angleDelta) % 360f
+            // Apply rotation
+            rotation = (rotation + angleDelta) % 360f
 
-        // Convert same screen centroid offset to map coordinates using NEW rotation
-        val mapOffsetAfter = centeredOffset.rotate(rotation)
+            // Convert same screen centroid offset to map coordinates using NEW rotation
+            val mapOffsetAfter = centeredOffset.rotate(rotation)
 
-        // New center so that centroid tile pos maps back to the same screen point
-        centerPos = centerPos.copy(
-            x = centroidTileX - mapOffsetAfter.x / scaledTileSize,
-            y = centroidTileY - mapOffsetAfter.y / scaledTileSize
-        ).wrap()
+            // New center so that centroid tile pos maps back to the same screen point
+            centerPos = centerPos.copy(
+                x = centroidTileX - mapOffsetAfter.x / scaledTileSize,
+                y = centroidTileY - mapOffsetAfter.y / scaledTileSize
+            ).wrap()
 
-        update()
-        invalidateCounter++
+            update()
+            invalidateCounter++
+        }
     }
     fun movePx(x: Float, y: Float) {
         smoothMoveJob?.cancel()
@@ -483,7 +514,7 @@ fun TileMapView(
         Canvas(modifier.clipToBounds()) {
             state.updateSize(size)
             val mapDrawScope = MapDrawScopeImpl(this, state)
-            val frame = state.invalidateCounter // needed to redraw when invalidated
+            state.invalidateCounter // needed to redraw when invalidated
             //log("Frame: $frame")
             rotate(-state.rotation) {
                 translate(size.width / 2, size.height / 2) {
